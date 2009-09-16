@@ -6,6 +6,7 @@
  *
  *  See Documentation/nommu-mmap.txt
  *
+ *  Copyright (c) 2009      Anthony Green <green@moxielogic.com>
  *  Copyright (c) 2004-2008 David Howells <dhowells@redhat.com>
  *  Copyright (c) 2000-2003 David McCullough <davidm@snapgear.com>
  *  Copyright (c) 2000-2001 D Jeff Dionne <jeff@uClinux.org>
@@ -847,8 +848,11 @@ static int validate_mmap_request(struct file *file,
 	unsigned long reqprot = prot;
 	int ret;
 
+	/* Clear addr because it's a hint we have to ignore.  */
+	addr = 0;
+
 	/* do the simple checks first */
-	if (flags & MAP_FIXED || addr) {
+	if (flags & MAP_FIXED) {
 		printk(KERN_DEBUG
 		       "%d: Can't do fixed-address/overlay mmap of RAM\n",
 		       current->pid);

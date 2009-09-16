@@ -519,9 +519,9 @@ endif # $(dot-config)
 all: vmlinux
 
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
-KBUILD_CFLAGS	+= -Os
+KBUILD_CFLAGS	+= -Os -g -fno-rerun-cse-after-loop
 else
-KBUILD_CFLAGS	+= -O2
+KBUILD_CFLAGS	+= -O2 -g -fno-rerun-cse-after-loop
 endif
 
 include $(srctree)/arch/$(SRCARCH)/Makefile

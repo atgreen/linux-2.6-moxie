@@ -16,6 +16,9 @@ struct dev_archdata {
 	struct device_node	*of_node;
 };
 
+struct pdev_archdata {
+};
+
 static inline void dev_archdata_set_node(struct dev_archdata *ad,
 					 struct device_node *np)
 {
