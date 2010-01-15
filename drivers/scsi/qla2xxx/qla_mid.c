@@ -382,8 +382,6 @@ qla24xx_create_vhost(struct fc_vport *fc_vport)
 	vha->mgmt_svr_loop_id = 10 + vha->vp_idx;
 
 	vha->dpc_flags = 0L;
-	set_bit(REGISTER_FDMI_NEEDED, &vha->dpc_flags);
-	set_bit(REGISTER_FC4_NEEDED, &vha->dpc_flags);
 
 	/*
 	 * To fix the issue of processing a parent's RSCN for the vport before
@@ -568,7 +566,7 @@ qla25xx_create_req_que(struct qla_hw_data *ha, uint16_t options,
 	if (req == NULL) {
 		qla_printk(KERN_WARNING, ha, "could not allocate memory"
 			"for request que\n");
-		goto que_failed;
+		goto failed;
 	}
 
 	req->length = REQUEST_ENTRY_CNT_24XX;
@@ -632,6 +630,7 @@ qla25xx_create_req_que(struct qla_hw_data *ha, uint16_t options,
 
 que_failed:
 	qla25xx_free_req_que(base_vha, req);
+failed:
 	return 0;
 }
 
@@ -640,8 +639,10 @@ static void qla_do_work(struct work_struct *work)
 	struct rsp_que *rsp = container_of(work, struct rsp_que, q_work);
 	struct scsi_qla_host *vha;
 
+	spin_lock_irq(&rsp->hw->hardware_lock);
 	vha = qla25xx_get_host(rsp);
 	qla24xx_process_response_queue(vha, rsp);
+	spin_unlock_irq(&rsp->hw->hardware_lock);
 }
 
 /* create response queue */
@@ -659,7 +660,7 @@ qla25xx_create_rsp_que(struct qla_hw_data *ha, uint16_t options,
 	if (rsp == NULL) {
 		qla_printk(KERN_WARNING, ha, "could not allocate memory for"
 				" response que\n");
-		goto que_failed;
+		goto failed;
 	}
 
 	rsp->length = RESPONSE_ENTRY_CNT_MQ;
@@ -697,6 +698,10 @@ qla25xx_create_rsp_que(struct qla_hw_data *ha, uint16_t options,
 	/* Use alternate PCI devfn */
 	if (LSB(rsp->rid))
 		options |= BIT_5;
+	/* Enable MSIX handshake mode on for uncapable adapters */
+	if (!IS_MSIX_NACK_CAPABLE(ha))
+		options |= BIT_6;
+
 	rsp->options = options;
 	rsp->id = que_id;
 	reg = ISP_QUE_REG(ha, que_id);
@@ -728,6 +733,7 @@ qla25xx_create_rsp_que(struct qla_hw_data *ha, uint16_t options,
 
 que_failed:
 	qla25xx_free_rsp_que(base_vha, rsp);
+failed:
 	return 0;
 }
 

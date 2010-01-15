@@ -176,7 +176,8 @@ static void o2hb_write_timeout(struct work_struct *work)
 
 static void o2hb_arm_write_timeout(struct o2hb_region *reg)
 {
-	mlog(0, "Queue write timeout for %u ms\n", O2HB_MAX_WRITE_TIMEOUT_MS);
+	mlog(ML_HEARTBEAT, "Queue write timeout for %u ms\n",
+	     O2HB_MAX_WRITE_TIMEOUT_MS);
 
 	cancel_delayed_work(&reg->hr_write_timeout_work);
 	reg->hr_last_timeout_start = jiffies;
@@ -874,7 +875,8 @@ static int o2hb_thread(void *data)
 		do_gettimeofday(&after_hb);
 		elapsed_msec = o2hb_elapsed_msecs(&before_hb, &after_hb);
 
-		mlog(0, "start = %lu.%lu, end = %lu.%lu, msec = %u\n",
+		mlog(ML_HEARTBEAT,
+		     "start = %lu.%lu, end = %lu.%lu, msec = %u\n",
 		     before_hb.tv_sec, (unsigned long) before_hb.tv_usec,
 		     after_hb.tv_sec, (unsigned long) after_hb.tv_usec,
 		     elapsed_msec);
@@ -966,7 +968,7 @@ static ssize_t o2hb_debug_read(struct file *file, char __user *buf,
 }
 #endif  /* CONFIG_DEBUG_FS */
 
-static struct file_operations o2hb_debug_fops = {
+static const struct file_operations o2hb_debug_fops = {
 	.open =		o2hb_debug_open,
 	.release =	o2hb_debug_release,
 	.read =		o2hb_debug_read,

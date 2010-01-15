@@ -32,7 +32,7 @@
 #include <linux/cpumask.h>
 #include <linux/cpu.h>
 #include <linux/err.h>
-#include <linux/smp.h>
+#include <linux/ftrace.h>
 
 #include <asm/atomic.h>
 #include <asm/cpu.h>
@@ -128,23 +128,10 @@ asmlinkage __cpuinit void start_secondary(void)
 	cpu_idle();
 }
 
-void arch_send_call_function_ipi_mask(const struct cpumask *mask)
-{
-	mp_ops->send_ipi_mask(mask, SMP_CALL_FUNCTION);
-}
-
-/*
- * We reuse the same vector for the single IPI
- */
-void arch_send_call_function_single_ipi(int cpu)
-{
-	mp_ops->send_ipi_mask(cpumask_of_cpu(cpu), SMP_CALL_FUNCTION);
-}
-
 /*
  * Call into both interrupt handlers, as we share the IPI for them
  */
-void smp_call_function_interrupt(void)
+void __irq_entry smp_call_function_interrupt(void)
 {
 	irq_enter();
 	generic_smp_call_function_single_interrupt();

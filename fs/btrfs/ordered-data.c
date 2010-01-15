@@ -291,20 +291,26 @@ int btrfs_put_ordered_extent(struct btrfs_ordered_extent *entry)
 
 /*
  * remove an ordered extent from the tree.  No references are dropped
- * but, anyone waiting on this extent is woken up.
+ * and you must wake_up entry->wait.  You must hold the tree mutex
+ * while you call this function.
  */
-int btrfs_remove_ordered_extent(struct inode *inode,
+static int __btrfs_remove_ordered_extent(struct inode *inode,
 				struct btrfs_ordered_extent *entry)
 {
 	struct btrfs_ordered_inode_tree *tree;
 	struct rb_node *node;
 
 	tree = &BTRFS_I(inode)->ordered_tree;
-	mutex_lock(&tree->mutex);
 	node = &entry->rb_node;
 	rb_erase(node, &tree->tree);
 	tree->last = NULL;
 	set_bit(BTRFS_ORDERED_COMPLETE, &entry->flags);
+
+	spin_lock(&BTRFS_I(inode)->accounting_lock);
+	BTRFS_I(inode)->outstanding_extents--;
+	spin_unlock(&BTRFS_I(inode)->accounting_lock);
+	btrfs_unreserve_metadata_for_delalloc(BTRFS_I(inode)->root,
+					      inode, 1);
 
 	spin_lock(&BTRFS_I(inode)->root->fs_info->ordered_extent_lock);
 	list_del_init(&entry->root_extent_list);
@@ -320,16 +326,34 @@ int btrfs_remove_ordered_extent(struct inode *inode,
 	}
 	spin_unlock(&BTRFS_I(inode)->root->fs_info->ordered_extent_lock);
 
+	return 0;
+}
+
+/*
+ * remove an ordered extent from the tree.  No references are dropped
+ * but any waiters are woken.
+ */
+int btrfs_remove_ordered_extent(struct inode *inode,
+				struct btrfs_ordered_extent *entry)
+{
+	struct btrfs_ordered_inode_tree *tree;
+	int ret;
+
+	tree = &BTRFS_I(inode)->ordered_tree;
+	mutex_lock(&tree->mutex);
+	ret = __btrfs_remove_ordered_extent(inode, entry);
 	mutex_unlock(&tree->mutex);
 	wake_up(&entry->wait);
-	return 0;
+
+	return ret;
 }
 
 /*
  * wait for all the ordered extents in a root.  This is done when balancing
  * space between drives.
  */
-int btrfs_wait_ordered_extents(struct btrfs_root *root, int nocow_only)
+int btrfs_wait_ordered_extents(struct btrfs_root *root,
+			       int nocow_only, int delay_iput)
 {
 	struct list_head splice;
 	struct list_head *cur;
@@ -366,7 +390,10 @@ int btrfs_wait_ordered_extents(struct btrfs_root *root, int nocow_only)
 		if (inode) {
 			btrfs_start_ordered_extent(inode, ordered, 1);
 			btrfs_put_ordered_extent(ordered);
-			iput(inode);
+			if (delay_iput)
+				btrfs_add_delayed_iput(inode);
+			else
+				iput(inode);
 		} else {
 			btrfs_put_ordered_extent(ordered);
 		}
@@ -424,7 +451,7 @@ again:
 				btrfs_wait_ordered_range(inode, 0, (u64)-1);
 			else
 				filemap_flush(inode->i_mapping);
-			iput(inode);
+			btrfs_add_delayed_iput(inode);
 		}
 
 		cond_resched();
@@ -458,7 +485,7 @@ void btrfs_start_ordered_extent(struct inode *inode,
 	 * start IO on any dirty ones so the wait doesn't stall waiting
 	 * for pdflush to find them
 	 */
-	btrfs_fdatawrite_range(inode->i_mapping, start, end, WB_SYNC_ALL);
+	filemap_fdatawrite_range(inode->i_mapping, start, end);
 	if (wait) {
 		wait_event(entry->wait, test_bit(BTRFS_ORDERED_COMPLETE,
 						 &entry->flags));
@@ -488,17 +515,15 @@ again:
 	/* start IO across the range first to instantiate any delalloc
 	 * extents
 	 */
-	btrfs_fdatawrite_range(inode->i_mapping, start, orig_end, WB_SYNC_ALL);
+	filemap_fdatawrite_range(inode->i_mapping, start, orig_end);
 
 	/* The compression code will leave pages locked but return from
 	 * writepage without setting the page writeback.  Starting again
 	 * with WB_SYNC_ALL will end up waiting for the IO to actually start.
 	 */
-	btrfs_fdatawrite_range(inode->i_mapping, start, orig_end, WB_SYNC_ALL);
+	filemap_fdatawrite_range(inode->i_mapping, start, orig_end);
 
-	btrfs_wait_on_page_writeback_range(inode->i_mapping,
-					   start >> PAGE_CACHE_SHIFT,
-					   orig_end >> PAGE_CACHE_SHIFT);
+	filemap_fdatawait_range(inode->i_mapping, start, orig_end);
 
 	end = orig_end;
 	found = 0;
@@ -585,7 +610,7 @@ out:
  * After an extent is done, call this to conditionally update the on disk
  * i_size.  i_size is updated to cover any fully written part of the file.
  */
-int btrfs_ordered_update_i_size(struct inode *inode,
+int btrfs_ordered_update_i_size(struct inode *inode, u64 offset,
 				struct btrfs_ordered_extent *ordered)
 {
 	struct btrfs_ordered_inode_tree *tree = &BTRFS_I(inode)->ordered_tree;
@@ -593,18 +618,30 @@ int btrfs_ordered_update_i_size(struct inode *inode,
 	u64 disk_i_size;
 	u64 new_i_size;
 	u64 i_size_test;
+	u64 i_size = i_size_read(inode);
 	struct rb_node *node;
+	struct rb_node *prev = NULL;
 	struct btrfs_ordered_extent *test;
+	int ret = 1;
+
+	if (ordered)
+		offset = entry_end(ordered);
 
 	mutex_lock(&tree->mutex);
 	disk_i_size = BTRFS_I(inode)->disk_i_size;
+
+	/* truncate file */
+	if (disk_i_size > i_size) {
+		BTRFS_I(inode)->disk_i_size = i_size;
+		ret = 0;
+		goto out;
+	}
 
 	/*
 	 * if the disk i_size is already at the inode->i_size, or
 	 * this ordered extent is inside the disk i_size, we're done
 	 */
-	if (disk_i_size >= inode->i_size ||
-	    ordered->file_offset + ordered->len <= disk_i_size) {
+	if (disk_i_size == i_size || offset <= disk_i_size) {
 		goto out;
 	}
 
@@ -612,8 +649,7 @@ int btrfs_ordered_update_i_size(struct inode *inode,
 	 * we can't update the disk_isize if there are delalloc bytes
 	 * between disk_i_size and  this ordered extent
 	 */
-	if (test_range_bit(io_tree, disk_i_size,
-			   ordered->file_offset + ordered->len - 1,
+	if (test_range_bit(io_tree, disk_i_size, offset - 1,
 			   EXTENT_DELALLOC, 0, NULL)) {
 		goto out;
 	}
@@ -622,20 +658,32 @@ int btrfs_ordered_update_i_size(struct inode *inode,
 	 * if we find an ordered extent then we can't update disk i_size
 	 * yet
 	 */
-	node = &ordered->rb_node;
-	while (1) {
-		node = rb_prev(node);
-		if (!node)
-			break;
+	if (ordered) {
+		node = rb_prev(&ordered->rb_node);
+	} else {
+		prev = tree_search(tree, offset);
+		/*
+		 * we insert file extents without involving ordered struct,
+		 * so there should be no ordered struct cover this offset
+		 */
+		if (prev) {
+			test = rb_entry(prev, struct btrfs_ordered_extent,
+					rb_node);
+			BUG_ON(offset_in_entry(test, offset));
+		}
+		node = prev;
+	}
+	while (node) {
 		test = rb_entry(node, struct btrfs_ordered_extent, rb_node);
 		if (test->file_offset + test->len <= disk_i_size)
 			break;
-		if (test->file_offset >= inode->i_size)
+		if (test->file_offset >= i_size)
 			break;
 		if (test->file_offset >= disk_i_size)
 			goto out;
+		node = rb_prev(node);
 	}
-	new_i_size = min_t(u64, entry_end(ordered), i_size_read(inode));
+	new_i_size = min_t(u64, offset, i_size);
 
 	/*
 	 * at this point, we know we can safely update i_size to at least
@@ -643,7 +691,14 @@ int btrfs_ordered_update_i_size(struct inode *inode,
 	 * walk forward and see if ios from higher up in the file have
 	 * finished.
 	 */
-	node = rb_next(&ordered->rb_node);
+	if (ordered) {
+		node = rb_next(&ordered->rb_node);
+	} else {
+		if (prev)
+			node = rb_next(prev);
+		else
+			node = rb_first(&tree->tree);
+	}
 	i_size_test = 0;
 	if (node) {
 		/*
@@ -651,10 +706,10 @@ int btrfs_ordered_update_i_size(struct inode *inode,
 		 * between our ordered extent and the next one.
 		 */
 		test = rb_entry(node, struct btrfs_ordered_extent, rb_node);
-		if (test->file_offset > entry_end(ordered))
+		if (test->file_offset > offset)
 			i_size_test = test->file_offset;
 	} else {
-		i_size_test = i_size_read(inode);
+		i_size_test = i_size;
 	}
 
 	/*
@@ -663,15 +718,25 @@ int btrfs_ordered_update_i_size(struct inode *inode,
 	 * are no delalloc bytes in this area, it is safe to update
 	 * disk_i_size to the end of the region.
 	 */
-	if (i_size_test > entry_end(ordered) &&
-	    !test_range_bit(io_tree, entry_end(ordered), i_size_test - 1,
-			   EXTENT_DELALLOC, 0, NULL)) {
-		new_i_size = min_t(u64, i_size_test, i_size_read(inode));
+	if (i_size_test > offset &&
+	    !test_range_bit(io_tree, offset, i_size_test - 1,
+			    EXTENT_DELALLOC, 0, NULL)) {
+		new_i_size = min_t(u64, i_size_test, i_size);
 	}
 	BTRFS_I(inode)->disk_i_size = new_i_size;
+	ret = 0;
 out:
+	/*
+	 * we need to remove the ordered extent with the tree lock held
+	 * so that other people calling this function don't find our fully
+	 * processed ordered entry and skip updating the i_size
+	 */
+	if (ordered)
+		__btrfs_remove_ordered_extent(inode, ordered);
 	mutex_unlock(&tree->mutex);
-	return 0;
+	if (ordered)
+		wake_up(&ordered->wait);
+	return ret;
 }
 
 /*
@@ -715,89 +780,6 @@ out:
 	return ret;
 }
 
-
-/**
- * taken from mm/filemap.c because it isn't exported
- *
- * __filemap_fdatawrite_range - start writeback on mapping dirty pages in range
- * @mapping:	address space structure to write
- * @start:	offset in bytes where the range starts
- * @end:	offset in bytes where the range ends (inclusive)
- * @sync_mode:	enable synchronous operation
- *
- * Start writeback against all of a mapping's dirty pages that lie
- * within the byte offsets <start, end> inclusive.
- *
- * If sync_mode is WB_SYNC_ALL then this is a "data integrity" operation, as
- * opposed to a regular memory cleansing writeback.  The difference between
- * these two operations is that if a dirty page/buffer is encountered, it must
- * be waited upon, and not just skipped over.
- */
-int btrfs_fdatawrite_range(struct address_space *mapping, loff_t start,
-			   loff_t end, int sync_mode)
-{
-	struct writeback_control wbc = {
-		.sync_mode = sync_mode,
-		.nr_to_write = mapping->nrpages * 2,
-		.range_start = start,
-		.range_end = end,
-	};
-	return btrfs_writepages(mapping, &wbc);
-}
-
-/**
- * taken from mm/filemap.c because it isn't exported
- *
- * wait_on_page_writeback_range - wait for writeback to complete
- * @mapping:	target address_space
- * @start:	beginning page index
- * @end:	ending page index
- *
- * Wait for writeback to complete against pages indexed by start->end
- * inclusive
- */
-int btrfs_wait_on_page_writeback_range(struct address_space *mapping,
-				       pgoff_t start, pgoff_t end)
-{
-	struct pagevec pvec;
-	int nr_pages;
-	int ret = 0;
-	pgoff_t index;
-
-	if (end < start)
-		return 0;
-
-	pagevec_init(&pvec, 0);
-	index = start;
-	while ((index <= end) &&
-			(nr_pages = pagevec_lookup_tag(&pvec, mapping, &index,
-			PAGECACHE_TAG_WRITEBACK,
-			min(end - index, (pgoff_t)PAGEVEC_SIZE-1) + 1)) != 0) {
-		unsigned i;
-
-		for (i = 0; i < nr_pages; i++) {
-			struct page *page = pvec.pages[i];
-
-			/* until radix tree lookup accepts end_index */
-			if (page->index > end)
-				continue;
-
-			wait_on_page_writeback(page);
-			if (PageError(page))
-				ret = -EIO;
-		}
-		pagevec_release(&pvec);
-		cond_resched();
-	}
-
-	/* Check for outstanding write errors */
-	if (test_and_clear_bit(AS_ENOSPC, &mapping->flags))
-		ret = -ENOSPC;
-	if (test_and_clear_bit(AS_EIO, &mapping->flags))
-		ret = -EIO;
-
-	return ret;
-}
 
 /*
  * add a given inode to the list of inodes that must be fully on
