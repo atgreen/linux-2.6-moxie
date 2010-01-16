@@ -1,6 +1,7 @@
 /*
  * Procedures for creating, accessing and interpreting the device tree.
  *
+ * Copyright (C) 2010 Anthony Green
  * Paul Mackerras	August 1996.
  * Copyright (C) 1996-2005 Paul Mackerras.
  *
@@ -867,29 +868,6 @@ struct device_node *of_find_node_by_phandle(phandle handle)
 	return np;
 }
 EXPORT_SYMBOL(of_find_node_by_phandle);
-
-/**
- *	of_find_all_nodes - Get next node in global list
- *	@prev:	Previous node or NULL to start iteration
- *		of_node_put() will be called on it
- *
- *	Returns a node pointer with refcount incremented, use
- *	of_node_put() on it when done.
- */
-struct device_node *of_find_all_nodes(struct device_node *prev)
-{
-	struct device_node *np;
-
-	read_lock(&devtree_lock);
-	np = prev ? prev->allnext : allnodes;
-	for (; np != NULL; np = np->allnext)
-		if (of_node_get(np))
-			break;
-	of_node_put(prev);
-	read_unlock(&devtree_lock);
-	return np;
-}
-EXPORT_SYMBOL(of_find_all_nodes);
 
 /**
  *	of_node_get - Increment refcount of a node

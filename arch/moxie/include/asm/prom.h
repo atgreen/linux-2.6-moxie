@@ -2,6 +2,7 @@
  * Definitions for talking to the Open Firmware PROM on
  * Power Macintosh computers.
  *
+ * Copyright (C) 2010 Anthony Green
  * Copyright (C) 1996-2005 Paul Mackerras.
  *
  * Updates for PPC64 by Peter Bergner & David Engebretsen, IBM Corp.
@@ -11,6 +12,8 @@
  * as published by the Free Software Foundation; either version
  * 2 of the License, or (at your option) any later version.
  */
+
+#include <linux/of.h>	/* linux/of.h gets to determine #include ordering */
 
 #ifndef _ASM_MOXIE_PROM_H
 #define _ASM_MOXIE_PROM_H
@@ -69,55 +72,9 @@ struct boot_param_header {
 	u32	dt_struct_size; /* size of the DT structure block */
 };
 
-typedef u32 phandle;
-typedef u32 ihandle;
-
-struct property {
-	char	*name;
-	int	length;
-	void	*value;
-	struct property *next;
-};
-
-struct device_node {
-	const char *name;
-	const char *type;
-	phandle	node;
-	phandle linux_phandle;
-	char	*full_name;
-
-	struct	property *properties;
-	struct	property *deadprops; /* removed properties */
-	struct	device_node *parent;
-	struct	device_node *child;
-	struct	device_node *sibling;
-	struct	device_node *next; /* next device of same type */
-	struct	device_node *allnext; /* next in list of all nodes */
-	struct	proc_dir_entry *pde; /* this node's proc directory */
-	struct	kref kref;
-	unsigned long _flags;
-	void	*data;
-};
-
 extern struct device_node *of_chosen;
 
-static inline int of_node_check_flag(struct device_node *n, unsigned long flag)
-{
-	return test_bit(flag, &n->_flags);
-}
-
-static inline void of_node_set_flag(struct device_node *n, unsigned long flag)
-{
-	set_bit(flag, &n->_flags);
-}
-
 #define HAVE_ARCH_DEVTREE_FIXUPS
-
-static inline void set_node_proc_entry(struct device_node *dn,
-					struct proc_dir_entry *de)
-{
-	dn->pde = de;
-}
 
 extern struct device_node *allnodes;	/* temporary while merging */
 extern rwlock_t devtree_lock;	/* temporary while merging */
@@ -163,18 +120,6 @@ extern int release_OF_resource(struct device_node *node, int index);
 /*
  * OF address retreival & translation
  */
-
-/* Helper to read a big number; size is in cells (not bytes) */
-static inline u64 of_read_number(const u32 *cell, int size)
-{
-	u64 r = 0;
-	while (size--)
-		r = (r << 32) | *(cell++);
-	return r;
-}
-
-/* Like of_read_number, but we want an unsigned long result */
-#define of_read_ulong(cell, size)	of_read_number(cell, size)
 
 /* Translate an OF address block into a CPU physical address
  */
