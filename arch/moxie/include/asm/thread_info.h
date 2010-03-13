@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Anthony Green <green@moxielogic.com>
+ * Copyright (C) 2009, 2010 Anthony Green <green@moxielogic.com>
  * Copyright (C) 2006 Atmark Techno, Inc.
  *
  * This file is subject to the terms and conditions of the GNU General Public
@@ -48,6 +48,7 @@ struct cpu_context {
 	__u32	r12;
 	__u32	r13;
 	__u32	pc;
+	__u32   ksp;
 };
 
 struct thread_info {

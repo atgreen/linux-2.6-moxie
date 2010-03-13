@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Anthony Green <moxielogic.com>
+ * Copyright (C) 2009, 2010 Anthony Green <moxielogic.com>
  * Copyright (C) 2008-2009 Michal Simek <monstr@monstr.eu>
  * Copyright (C) 2008-2009 PetaLogix
  * Copyright (C) 2006 Atmark Techno, Inc.
@@ -16,6 +16,15 @@
 #include <linux/bitops.h>
 #include <asm/system.h>
 #include <asm/pgalloc.h>
+
+struct task_struct *moxie_debug_switch_to(struct thread_info *prev,
+					struct thread_info *next,
+					struct task_struct *prev_task)
+{
+	printk (KERN_NOTICE " >> SWITCHING TO 0x%x with KSP of 0x%x", 
+		next, next->cpu_context.ksp);
+	return next;
+}
 
 void show_regs(struct pt_regs *regs)
 {
@@ -111,21 +120,36 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 {
 	struct pt_regs *childregs = task_pt_regs(p);
 	struct thread_info *ti = task_thread_info(p);
+	unsigned int *frame = ((unsigned int *)childregs) - 3;
+
+	printk(KERN_NOTICE "childregs       @ 0x%x\n", (unsigned int) childregs);
+	printk(KERN_NOTICE "frame           @ 0x%x\n", (unsigned int) frame);
+	printk(KERN_NOTICE "ti              @ 0x%x\n", (unsigned int) ti);
+	printk(KERN_NOTICE "ti->cpu_context @ 0x%x\n", (unsigned int) &(ti->cpu_context));
+	printk(KERN_NOTICE "task_stack_page @ 0x%x\n", (unsigned int) task_stack_page(p));
+	printk(KERN_NOTICE "regs            @ 0x%x\n", (unsigned int) regs);
+	printk(KERN_NOTICE "ksp             @ 0x%x\n", ((unsigned int) ti + THREAD_SIZE));
 
 	*childregs = *regs;
+	childregs->r13 = (unsigned long) p; /* current */
+	frame[1] = (unsigned long) ret_from_fork;
+
 	if (user_mode(regs))
+	{
+		printk(KERN_NOTICE "*** USER STACK POINTER 1: 0x%x\n", (unsigned int) regs->sp);
+		printk(KERN_NOTICE "*** USER STACK POINTER 2: 0x%x\n", (unsigned int) usp);
 		childregs->sp = usp;
+	}
 	else
 		childregs->sp = ((unsigned long) ti) + THREAD_SIZE;
 
 	memset(&ti->cpu_context, 0, sizeof(struct cpu_context));
-	ti->cpu_context.sp = (unsigned long)childregs;
 	ti->cpu_context.r0 = childregs->r0;
-	ti->cpu_context.r1 = childregs->r1;
+	ti->cpu_context.fp = (unsigned long) frame;
+	ti->cpu_context.sp = (unsigned long) frame;
+	ti->cpu_context.pc = (unsigned long) ret_from_fork;
 	ti->cpu_context.r13 = (unsigned long) p; /* current */
-	ti->cpu_context.pc = childregs->pc;
-
-	ti->cpu_context.sp -= 12; /* allocate function call ABI stack */
+	ti->cpu_context.ksp = ((unsigned long) ti) + THREAD_SIZE;
 
 	if (clone_flags & CLONE_SETTLS)
 		;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Anthony Green <green@moxielogic.com>
+ * Copyright (C) 2009, 2010 Anthony Green <green@moxielogic.com>
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License. See the file "COPYING" in the main directory of this archive
@@ -17,7 +17,7 @@
 #define CURRENT_TASK	$r13
 # ifndef __ASSEMBLY__
 /*
- * Dedicate r31 to keeping the current task pointer
+ * Dedicate r13 to keeping the current task pointer
  */
 register struct task_struct *current asm("$r13");
 

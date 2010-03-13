@@ -1,0 +1,12 @@
+0x00bdcfb0	stack start for busybox
+0x00bdcdb2	PC at crash time.  Illegal instruction.
+0x00bdccd0	USER STACK POINTER 1
+0x00bdbbd0	USER STACK POINTER 2
+0x00bc48c4	BSS end for busybox
+0x00bc0fe4	BSS start for busybox
+0x00bc0fe4	DATA end for busybox
+0x00ba8924	DATA start for busybox
+0X00ba8920	TEXT end for busybox
+0x00b00040	TEXT start for busybox
+0x00343ffc	USP for failing process
+0x00260000	KSP for task 0x25e000

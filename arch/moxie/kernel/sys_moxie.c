@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Anthony Green <green@moxielogic.com>
+ * Copyright (C) 2009, 2010 Anthony Green <green@moxielogic.com>
  * Copyright (C) 2007-2009 Michal Simek <monstr@monstr.eu>
  * Copyright (C) 2007-2009 PetaLogix
  * Copyright (C) 2007 John Williams <john.williams@petalogix.com>
@@ -136,14 +136,14 @@ sys_ipc(uint call, int first, int second, int third, void *ptr, long fifth)
 
 asmlinkage long moxie_vfork(struct pt_regs *regs)
 {
-	return do_fork(CLONE_VFORK | CLONE_VM | SIGCHLD, regs->r1,
-						regs, 0, NULL, NULL);
+	return do_fork(CLONE_VFORK | CLONE_VM | SIGCHLD, regs->sp,
+		       regs, 0, NULL, NULL);
 }
 
 asmlinkage long moxie_clone(int flags, unsigned long stack, struct pt_regs *regs)
 {
 	if (!stack)
-		stack = regs->r1;
+		stack = regs->sp;
 	return do_fork(flags, stack, regs, 0, NULL, NULL);
 }
 

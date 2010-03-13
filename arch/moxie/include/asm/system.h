@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2006 Atmark Techno, Inc.
+ * Copyright (C) 2006, 2010 Atmark Techno, Inc.
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License. See the file "COPYING" in the main directory of this archive
@@ -22,12 +22,14 @@ struct task_struct;
 struct thread_info;
 
 extern struct task_struct *_switch_to(struct thread_info *prev,
-					struct thread_info *next);
+				struct thread_info *next,
+				struct task_struct *last);
 
 #define switch_to(prev, next, last)					\
 	do {								\
 		(last) = _switch_to(task_thread_info(prev),		\
-					task_thread_info(next));	\
+				task_thread_info(next),			\
+				last);					\
 	} while (0)
 
 #define smp_read_barrier_depends()	do {} while (0)

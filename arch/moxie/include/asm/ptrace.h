@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009 Anthony Green
+ * Copyright (C) 2009, 2010 Anthony Green
  * Copyright (C) 2006 Atmark Techno, Inc.
  *
  * This file is subject to the terms and conditions of the GNU General Public
@@ -32,6 +32,7 @@ struct pt_regs {
 	moxie_reg_t r12;
 	moxie_reg_t r13;
 	moxie_reg_t pc;
+	moxie_reg_t ksp;
 	int pt_mode;
 };
 

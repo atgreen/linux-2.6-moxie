@@ -1,11 +1,13 @@
 /*
- * Copyright (C) 2009 Anthony Green <green@moxielogic.com>
+ * Copyright (C) 2009, 2010 Anthony Green <green@moxielogic.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
 
+#include <asm/moxie_regs.h>
+	
 #define MOXIE_EX_DIV0 0 /* Divide by zero */
 #define MOXIE_EX_BAD  1 /* Illegal instruction */
 #define MOXIE_EX_IRQ  2 /* Interrupt request */
@@ -16,9 +18,18 @@
 .global moxie_exception_handler
 moxie_exception_handler:
 
+	/* ---- Stash $r0 into a scratch special register --------- */
+	/* ---- and copy $sp into $r0. ---------------------------- */
+	ssr	$r0, MOXIE_SREG_SCRATCH
+	mov	$r0, $sp
+
+	/* ---- Switch to the kernel stack ------------------------ */
+	gsr	$sp, MOXIE_SREG_KSP
+
 	/* ---- Populate a pt_regs struct on the stack.  ---------- */
 
-	sto.l	-68($sp), $sp	/* Save stack pointer.  */
+	sto.l	-68($sp), $r0	/* Save stack pointer.  */
+	gsr	$r0, MOXIE_SREG_SCRATCH /* Restore $r0 */
 	dec	$sp, 8		/* Skip pt_mode and pc */
 	push	$sp, $r13
 	push	$sp, $r12
@@ -36,6 +47,10 @@ moxie_exception_handler:
 	push	$sp, $r0
 	dec	$sp, 4    /* Skip over $sp, which was alread saved.  */
    	push    $sp, $fp
+	/* Clear pt_mode.  This destroys $r7, but we'll just restore
+	   it again once we return from the exception below.  */
+	xor	$r7, $r7
+	sto.l	68($sp), $r7
 	/* Save the return address.  This destroys $r7, but we'll
 	   just restore it again once we return from the exception
 	   below.  */
@@ -43,17 +58,17 @@ moxie_exception_handler:
 	sto.l	64($sp), $r7
 	
 	/* What kind of exception is this?  The answer is stored in
-	   special register 2.  */
-	gsr	$r9, 2
+	   a special register.  */
+	gsr	$r9, MOXIE_SREG_EXCEPTION_TYPE
 
 	ldi.l	$r10, MOXIE_EX_SWI
 	cmp	$r9, $r10
 	bne	.return_from_exception /* Only handle swi for now. */
 
 	/* It's a software interrupt.  The interrupt number is held in
-	   special register 3.  Ignore everything except a system 
+	   a special register.  Ignore everything except a system 
 	   call.  */
-	gsr	$r9, 3
+	gsr	$r9, MOXIE_SREG_SWI_NUMBER
 	ldi.l	$r10, 0xffffffff
 	cmp	$r9, $r10
 	bne	.return_from_exception
@@ -78,6 +93,7 @@ moxie_exception_handler:
 	pop	$sp, $fp	/* Pop frame pointer.  */
 	inc	$sp, 28		/* skip $sp & $r0 through $r5.  */
 	pop	$sp, $r6
+
 	pop	$sp, $r7
 	pop	$sp, $r8
 	pop	$sp, $r9

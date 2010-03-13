@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2009-2010 Anthony Green <green@moxielogic.com>
  * Copyright (C) 2007-2009 Michal Simek <monstr@monstr.eu>
  * Copyright (C) 2007-2009 PetaLogix
  * Copyright (C) 2006 Atmark Techno, Inc.
@@ -90,6 +91,7 @@ int main(int argc, char *argv[])
 	DEFINE(CC_R12, offsetof(struct cpu_context, r12));
 	DEFINE(CC_R13, offsetof(struct cpu_context, r13));
 	DEFINE(CC_PC, offsetof(struct cpu_context, pc));
+	DEFINE(CC_KSP, offsetof(struct cpu_context, ksp));
 	BLANK();
 
 	return 0;

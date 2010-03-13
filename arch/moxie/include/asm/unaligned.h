@@ -1,6 +1,5 @@
 /*
- * Copyright (C) 2008 Michal Simek <monstr@monstr.eu>
- * Copyright (C) 2006 Atmark Techno, Inc.
+ * Copyright (C) 2010 Anthony Green <green@moxielogic.com>
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License. See the file "COPYING" in the main directory of this archive
