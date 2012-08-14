@@ -131,6 +131,7 @@ int copy_thread(unsigned long clone_flags, unsigned long usp,
 	printk(KERN_NOTICE "ksp             @ 0x%x\n", ((unsigned int) ti + THREAD_SIZE));
 
 	*childregs = *regs;
+	childregs->r0 = 0; /* child always returns 0 */
 	childregs->r13 = (unsigned long) p; /* current */
 	frame[1] = (unsigned long) ret_from_fork;
 
